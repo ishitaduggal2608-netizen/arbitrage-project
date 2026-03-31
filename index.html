@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bellman-Ford Arbitrage Model</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+            margin: 0;
+        }
+
+        header {
+            background: #020617;
+            padding: 15px;
+            text-align: center;
+            font-size: 22px;
+        }
+
+        .container {
+            display: flex;
+            padding: 20px;
+            gap: 20px;
+        }
+
+        .card {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 10px;
+            flex: 1;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border: none;
+        }
+
+        button {
+            padding: 10px;
+            width: 100%;
+            background: #22c55e;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th, td {
+            border: 1px solid #334155;
+            padding: 6px;
+            text-align: center;
+        }
+
+        .highlight {
+            color: yellow;
+        }
+
+        .log {
+            white-space: pre-wrap;
+            background: black;
+            padding: 10px;
+            border-radius: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+<header>💹 Bellman-Ford Arbitrage Detection</header>
+
+<div class="container">
+
+<div class="card">
+<h2>📥 Input</h2>
+
+<label>Currencies</label>
+<input id="nodes" placeholder="USD,EUR,INR">
+
+<label>Edges</label>
+<textarea id="edges" rows="6"
+placeholder="USD EUR 0.9
+EUR INR 88
+INR USD 0.012"></textarea>
+
+<label>Transaction Fee</label>
+<input id="fee" value="0.001">
+
+<label>Profit Threshold</label>
+<input id="threshold" value="1.01">
+
+<button onclick="run()">Run Algorithm</button>
+
+</div>
+
+<div class="card">
+<h2>📊 Output</h2>
+
+<div id="relaxTable"></div>
+
+<h3>Cycles</h3>
+<div id="cycles" class="log"></div>
+
+<h3>Best Arbitrage</h3>
+<div id="best" class="log"></div>
+
+</div>
+
+</div>
+
+<script>
+function run() {
+
+    let nodes = document.getElementById("nodes").value.split(",");
+    let lines = document.getElementById("edges").value.trim().split("\n");
+    let fee = parseFloat(document.getElementById("fee").value);
+    let threshold = parseFloat(document.getElementById("threshold").value);
+
+    let edges = [];
+
+    lines.forEach(l => {
+        let [u,v,r] = l.split(" ");
+        r = parseFloat(r) * (1 - fee);
+        edges.push({u,v,rate:r,weight:-Math.log(r)});
+    });
+
+    let dist = {}, parent = {};
+
+    nodes.forEach(n => dist[n] = Infinity);
+    dist[nodes[0]] = 0;
+
+    let tableHTML = "<table><tr><th>Iter</th>";
+    nodes.forEach(n => tableHTML += "<th>"+n+"</th>");
+    tableHTML += "</tr>";
+
+    // Bellman-Ford
+    for(let i=0;i<nodes.length-1;i++) {
+        edges.forEach(e=>{
+            if(dist[e.u]+e.weight < dist[e.v]){
+                dist[e.v]=dist[e.u]+e.weight;
+                parent[e.v]=e.u;
+            }
+        });
+
+        tableHTML += "<tr><td>"+(i+1)+"</td>";
+        nodes.forEach(n=>{
+            tableHTML += "<td>"+(dist[n]===Infinity?"inf":dist[n].toFixed(2))+"</td>";
+        });
+        tableHTML += "</tr>";
+    }
+
+    tableHTML += "</table>";
+    document.getElementById("relaxTable").innerHTML = tableHTML;
+
+    let cyclesLog = "";
+    let bestProfit = 0;
+    let bestCycle = [];
+
+    edges.forEach(e=>{
+        if(dist[e.u]+e.weight < dist[e.v]) {
+
+            let current = e.v;
+            for(let i=0;i<nodes.length;i++)
+                current = parent[current];
+
+            let cycle=[];
+            let temp=current;
+
+            do{
+                cycle.push(temp);
+                temp=parent[temp];
+            } while(temp!==current);
+
+            cycle.push(current);
+            cycle.reverse();
+
+            let profit=1;
+            for(let i=0;i<cycle.length-1;i++){
+                let ed = edges.find(x=>x.u===cycle[i] && x.v===cycle[i+1]);
+                if(ed) profit*=ed.rate;
+            }
+
+            cyclesLog += "Cycle: "+cycle.join(" → ")+"\n";
+            cyclesLog += "Profit: "+profit.toFixed(4);
+
+            if(profit>=threshold){
+                cyclesLog += " ✅ VALID\n\n";
+                if(profit>bestProfit){
+                    bestProfit=profit;
+                    bestCycle=cycle;
+                }
+            } else {
+                cyclesLog += " ❌ BELOW THRESHOLD\n\n";
+            }
+        }
+    });
+
+    if(cyclesLog==="") cyclesLog="No Arbitrage Found";
+
+    document.getElementById("cycles").innerText = cyclesLog;
+
+    let bestLog="";
+
+    if(bestCycle.length>0){
+
+        bestLog += bestCycle.join(" → ")+"\n";
+        bestLog += "Profit: "+bestProfit.toFixed(4)+"\n";
+        bestLog += "Gain: "+((bestProfit-1)*100).toFixed(2)+"%\n\n";
+
+        let amount=1000;
+        bestLog += "Simulation:\nStart: "+amount+"\n";
+
+        for(let i=0;i<bestCycle.length-1;i++){
+            let ed = edges.find(x=>x.u===bestCycle[i] && x.v===bestCycle[i+1]);
+            amount*=ed.rate;
+            bestLog += bestCycle[i]+" → "+bestCycle[i+1]+" = "+amount.toFixed(2)+"\n";
+        }
+
+        bestLog += "Final: "+amount.toFixed(2);
+    }
+    else{
+        bestLog="No valid arbitrage above threshold";
+    }
+
+    document.getElementById("best").innerText = bestLog;
+}
+</script>
+
+</body>
+</html>
